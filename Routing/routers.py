@@ -243,7 +243,7 @@ def Q_Net(action_dim):
 
 evolution_interval = K_evo = 10 #Every K epochs, use evolution 
 num_models = N_evo = 4 # How many models to train simultaneously
-
+evolution_rate = eta_evo = 0.5
 models_data = []
 capacity = 200000
 TAU = 0.01
@@ -349,7 +349,23 @@ def store_data():
 		model_t, V_t, relation1_t, relation2_t, feature_t, In_t, q_net_t, m1_t, m2_t, encoder_t, 
 		model, V, relation1, relation2, feature, In, q_net, m1, m2, encoder, buff, times ]
 
+def set_model(m_to, m_from):
+	#get data from m_from
+	curr_model = m_from
+	load_data()
+	model_stuff = [encoder, q_net, m1, m2, encoder_t, q_net_t, m1_t, m2_t]
+	saved_weights_ = [x.get_weights() for x in model_stuff]
+	
+	#set data in m_to
+	curr_model = m_to
+	load_data()
+	model_stuff = [encoder, q_net, m1, m2, encoder_t, q_net_t, m1_t, m2_t]
+	for i in range(len(model_stuff)):
+		model_stuff[i].set_weights(saved_weights_[i])
 
+
+
+rewards_evo = [0]*N_evo
 load_data() #load 0-th data
 #########playing#########
 while(1):
@@ -510,10 +526,21 @@ while(1):
 		store_data()
 
 		#store reward to check which model best (??)
-
+		rewards_evo[curr_model] = -loss
 		# check if we're done; then do genetic algo
 		if (curr_model+1) >= N_evo:
 			#genetic algo here
+			argmax_ind = rewards_evo.index(max(rewards_evo))
+			max_r = rewards_evo[argmax_ind]
+			for i in range(len(rewards_evo)):
+				r = rewards_evo[i]
+				probi = 1 - np.exp(eta_evo*r) / np.exp(eta_evo*max_r)
+				print("probi: ", probi)
+				#with prob. pi, swap model i with model argmax_ind
+				if np.random.random() < probi:
+					set_model(i, argmax_ind)
+
+			rewards_evo = [0]*N_evo #zero out prev rewards
 			curr_model = 0
 		else:
 			curr_model += 1
