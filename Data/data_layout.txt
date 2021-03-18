@@ -1,0 +1,8 @@
+It's a bit messy. I saved all the files/logs/outputs from all runs (some had bugs!)
+We have two file formats, the "log..." format which is output from f.write()
+and then the new "save_data.." format which is terminal outputs. 
+To use the terminal outputs for graphing, we create new files like
+cat save_data_same_buf.txt | grep -A4 "LOSS LAST" | grep "AVG" | grep "Model  0" > model0_SB.txt
+^ As in, we only care about the avg loss terms / loss for last 100 eps
+These files are read by "graph_gqn_out.py". You still have to change a few lines
+depending on what you're trying to graph, but the overall structure is in place

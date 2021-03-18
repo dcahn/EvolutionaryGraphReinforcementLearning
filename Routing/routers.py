@@ -243,8 +243,8 @@ def Q_Net(action_dim):
 
 
 
-evolution_interval = K_evo = 10 #Every K epochs, use evolution 
-num_models = N_evo = 4 # How many models to train simultaneously
+evolution_interval = K_evo = 500 #Every K epochs, use evolution 
+num_models = N_evo = 5 # How many models to train simultaneously
 evolution_rate = eta_evo = 0.5
 models_data = []
 capacity = 200000
@@ -259,7 +259,7 @@ num = 0
 total_time = 0
 num_param_updates = 0 #how many times we update parameters. After K, we swap to diff model
 curr_model = 0 #update data in models_data[curr_model]
-f = open('log_router_gqn.txt','w')
+f = open('log_router_gqn_same_buf.txt','w')
 
 for i in range(N_evo):
     ######build the model#########
@@ -339,19 +339,19 @@ for i in range(N_evo):
     #append all data here, unload for each model
     models_data.append(
         [model_t, V_t, relation1_t, relation2_t, feature_t, In_t, q_net_t, m1_t, m2_t, encoder_t, 
-        model, V, relation1, relation2, feature, In, q_net, m1, m2, encoder, buff, times ])
+        model, V, relation1, relation2, feature, In, q_net, m1, m2, encoder, times, data ])
 
 
 #helper fcns that look awful
 def load_data():
-    model_t, V_t, relation1_t, relation2_t, feature_t, In_t, q_net_t, m1_t, m2_t, encoder_t, model, V, relation1, relation2, feature, In, q_net, m1, m2, encoder, buff, times = models_data[curr_model]
+    model_t, V_t, relation1_t, relation2_t, feature_t, In_t, q_net_t, m1_t, m2_t, encoder_t, model, V, relation1, relation2, feature, In, q_net, m1, m2, encoder, times, data = models_data[curr_model]
 
 def store_data():
     models_data[curr_model] = [
         model_t, V_t, relation1_t, relation2_t, feature_t, In_t, q_net_t, m1_t, m2_t, encoder_t, 
-        model, V, relation1, relation2, feature, In, q_net, m1, m2, encoder, buff, times ]
+        model, V, relation1, relation2, feature, In, q_net, m1, m2, encoder, times, data ]
 
-def set_model(m_to, m_from):
+def set_model(m_to, m_from, mutate=False, p=0):
     #get data from m_from
     curr_model = m_from
     load_data()
@@ -362,13 +362,26 @@ def set_model(m_to, m_from):
     curr_model = m_to
     load_data()
     model_stuff = [encoder, q_net, m1, m2, encoder_t, q_net_t, m1_t, m2_t]
-    for i in range(len(model_stuff)):
-        model_stuff[i].set_weights(saved_weights_[i])
+    if not mutate:
+        rand_n = np.random.uniform(0,1)
+        if rand_n < p:
+            print("Setting model ", m_from, " to model ", m_to)
+            for i in range(len(model_stuff)):
+                model_stuff[i].set_weights(saved_weights_[i])
+    else:
+        for i in range(len(model_stuff)):
+            rand_n = np.random.uniform(0,1)
+            if rand_n < p:
+                print("Setting part of model ", m_from, " to model ", m_to)
+                model_stuff[i].set_weights(saved_weights_[i])
 
 
 
 rewards_evo = [0]*N_evo
 load_data() #load 0-th data
+loss_history_all = []
+for i in range(N_evo):
+    loss_history_all.append([])
 #########playing#########
 while(1):
 
@@ -408,10 +421,11 @@ while(1):
     buff.add(obs, act, next_obs, reward, done, adj)
 
     score += sum(reward)
-    if i_episode %100 ==0:
-        print(int(i_episode/100))
-        print(score/100,end='\t')
-        f.write(str(score/100)+'\t')
+    print_every = K_evo/5
+    if i_episode %  print_every:
+        print(int(i_episode/print_every))
+        print("score", score/print_every,end='\t')
+        f.write(str(score/print_every)+'\t')
         if num !=0:
             print(total_time/num,end='\t')
             f.write(str(total_time/num)+'\t')
@@ -419,8 +433,10 @@ while(1):
             print(0,end='\t')
             f.write(str(0)+'\t')
         print(num,end='\t')
-        print(loss/100)
-        f.write(str(num)+'\t'+str(loss/100)+'\n')
+        print(loss/print_every)
+        f.write(str(num)+'\t'+str(loss/print_every)+'\n')
+        rewards_evo[curr_model] += -loss #+score??
+        loss_history_all[curr_model].append(loss)
         loss = 0
         score = 0
         num = 0
@@ -528,10 +544,14 @@ while(1):
         store_data()
 
         #store reward to check which model best (??)
-        rewards_evo[curr_model] = -loss
+        #rewards_evo[curr_model] = -loss
         # check if we're done; then do genetic algo
         if (curr_model+1) >= N_evo:
-            
+            print("---- LOSS LAST 100 FAR ----")
+            for i in range(N_evo):
+                avg_loss = np.sum(np.array(loss_history_all[i][-100:]))/100
+                print("Model ", str(i), ". AVG: ", str(avg_loss), "...", str(loss_history_all[i][-5:]))
+            print(" ---- ")
             # #genetic algo here
             # argmax_ind = rewards_evo.index(max(rewards_evo))
             # max_r = rewards_evo[argmax_ind]
@@ -555,15 +575,13 @@ while(1):
             rewards_norm = rewards_evo/diff+0.5
             reward_exp = np.exp(rewards_norm*l)
             max_reward = reward_exp[argmax_ind]
-            for i in range(len(rewards_evo)):
-                p = np.random.uniform(0,1)
-                r = rewards_evo[i]
-                #with prob. pi, swap model i with model argmax_ind
-                if p> reward_exp[i]/max_reward:
-                    print("Setting model ", i , " with reward ", rewards_evo[i] , " to model ",argmax_ind, " with reward ", rewards_evo[argmax_ind])
-                    set_model(i, argmax_ind)
+            for i in range(len(rewards_evo)):               
+                #with prob. p, swap model i with model argmax_ind. If mutate, swap parts
+                print("p = ", 1-(reward_exp[i]/max_reward))
+                if i != argmax_ind:
+                    set_model(i, argmax_ind, mutate=False, p=1-(reward_exp[i]/max_reward))
 
-            rewards = [0]*N_evo #zero out prev rewards
+            rewards_evo = [0]*N_evo #zero out prev rewards
             curr_model = 0
 
 
